@@ -2,6 +2,8 @@ import 'dotenv/config';
 import {Client,GatewayIntentBits,Events,ActionRowBuilder,ButtonBuilder,ButtonStyle,MessageFlags, type ChatInputCommandInteraction, type ButtonInteraction} from 'discord.js';
 import {Coordinator,makeProfile,parseWindow,format,trace,type Session,type SessionKind} from './core.js';
 import {loadCoordinator,saveCoordinator} from './storage.js';
+import {calendarInvite} from './calendar.js';
+import {AttachmentBuilder} from 'discord.js';
 const token=process.env.DISCORD_TOKEN;if(!token)throw Error('Missing DISCORD_TOKEN in .env');
 const bot=new Client({intents:[GatewayIntentBits.Guilds]});const coordinator=new Coordinator(()=>saveCoordinator(coordinator));loadCoordinator(coordinator);
 function buttons(s:Session){return new ActionRowBuilder<ButtonBuilder>().addComponents(new ButtonBuilder().setCustomId(`yes:${s.id}`).setLabel('Approve match').setStyle(ButtonStyle.Success),new ButtonBuilder().setCustomId(`no:${s.id}`).setLabel('Decline').setStyle(ButtonStyle.Danger));}
@@ -25,7 +27,9 @@ async function handleCommand(i:ChatInputCommandInteraction){const sub=i.options.
  }catch(e){const message=e instanceof Error?e.message:String(e);if(i.deferred||i.replied)await i.followUp({content:`⚠️ ${message}`,flags:MessageFlags.Ephemeral});else await i.reply({content:`⚠️ ${message}`,flags:MessageFlags.Ephemeral});}
 }
 async function handleButton(i:ButtonInteraction){try{const [action,id]=i.customId.split(':');if(!['yes','no'].includes(action))return;const s=action==='yes'?coordinator.approve(id,i.user.id):coordinator.decline(id,i.user.id);await i.reply({content:action==='no'?'You declined the session.':s.status==='CONFIRMED'?'✅ Both students approved! Session confirmed.':'✅ Your approval recorded. Waiting for the other student.',flags:MessageFlags.Ephemeral});
- if(s.status==='CONFIRMED'||s.status==='DECLINED'){for(const uid of [s.a,s.b]){try{await (await bot.users.fetch(uid)).send(s.status==='CONFIRMED'?`✅ **SESSION CONFIRMED**: ${s.topic}, ${format(s.start)}, ${s.minutes} minutes. Partner: <@${uid===s.a?s.b:s.a}>. Arrange your call directly; no meeting link was created.`:'❌ The match was declined. No session was scheduled.');}catch{}}}
+ if(s.status==='CONFIRMED'||s.status==='DECLINED'){for(const uid of [s.a,s.b]){try{await (await bot.users.fetch(uid)).send(s.status==='CONFIRMED'
+ ? {content:`✅ **SESSION CONFIRMED**: ${s.topic}, ${format(s.start)}, ${s.minutes} minutes. Partner: <@${uid===s.a?s.b:s.a}>. An optional .ics calendar file is attached. Import it yourself; no calendar event or meeting link was created automatically.`, files:[new AttachmentBuilder(Buffer.from(calendarInvite(s),'utf8'),{name:`devil-radar-${s.id}.ics`})]}
+ : {content:'❌ The match was declined. No session was scheduled.'});}catch{}}}
  }catch(e){await i.reply({content:`⚠️ ${e instanceof Error?e.message:e}`,flags:MessageFlags.Ephemeral});}}
 bot.on(Events.InteractionCreate,async i=>{if(i.isChatInputCommand()&&i.commandName==='connect')await handleCommand(i);else if(i.isButton())await handleButton(i);});
 bot.once(Events.ClientReady,c=>console.log(`Devil Radar Connect online as ${c.user.tag}. Guild slash commands ready.`));

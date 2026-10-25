@@ -40,7 +40,7 @@ Student A runs `/connect find`. The agents propose 60 minutes at 4 PM Arizona ti
 - Distinct agent instances evaluate their students' own constraints. A coordinator validates the agreement and tracks human approvals.
 - Discord identity is taken from authenticated interactions, never typed IDs.
 - No Gmail, Canvas, grade, or personal contact data is accessed or shared.
-- No unapproved calendar creation, external invitation, or direct message to an unknown third party occurs. Matching is limited to opted-in users.
+- No automatic calendar creation, external invitation, or direct message to an unknown third party occurs. Matching is limited to opted-in users.
 - Time windows use Arizona time (`America/Phoenix`, UTC−7). In this hackathon version only one-day windows are supported.
 - Profiles, matches, and approvals are persisted locally in `.data/matches.json` with atomic writes and reload on restart. Never commit this file; it contains student identifiers and availability. It is not a hosted multi-instance database.
 - Negotiation is intentionally deterministic to guarantee a reproducible, auditable demonstration; **no LLM API is used or claimed**. Personal agents are independent constraint-handling modules with a documented message exchange.
@@ -53,7 +53,7 @@ Failure cases: incompatible topics, no overlapping time, insufficient duration, 
 
 ## Limitations
 
-This is a working Discord prototype, not a production marketplace: local file persistence only (not shared cloud storage), no verified calendar integrations, no automatic call links, and no arbitrary LLM negotiation. Slash commands are server-scoped for quick registration. Study sessions are supported by `kind=study` in `/connect join`; they only match others seeking study sessions with the same topic and difficulty. No automated call link or calendar event is created.
+This is a working Discord prototype, not a production marketplace: local file persistence only (not shared cloud storage), optional downloadable .ics calendar invitations after mutual approval (no direct calendar integration), no automatic call links, and no arbitrary LLM negotiation. Slash commands are server-scoped for quick registration. Study sessions are supported by `kind=study` in `/connect join`; they only match others seeking study sessions with the same topic and difficulty. No automated call link or calendar event is created.
 
 ## Hackathon demonstration and submission
 
@@ -62,3 +62,9 @@ This is a working Discord prototype, not a production marketplace: local file pe
 - **Human-in-the-loop:** neither personal agent can confirm a session without the two authenticated students clicking Approve.
 - **Reproduce:** `npm install && npm test && npm run demo`; for Discord create `.env`, run `npm run register`, then `npm start` and follow the two-user demo above.
 - **What is AI here?** The prototype uses independent rules-based personal agents for deterministic negotiation, not LLMs. It intentionally demonstrates verifiable agent-to-agent coordination rather than claiming unconstrained LLM autonomy.
+
+## Optional calendar invitation
+
+Once both students click Approve, each receives an `.ics` calendar file in a Discord DM. The attachment can be imported into Apple Calendar, Google Calendar, or Outlook manually. It contains only the agreed topic, session type, and scheduled time, not student emails or personal contact data. This does **not** create any calendar event automatically and does not create a meeting link. If Discord DMs are disabled, the session still confirms but the `.ics` attachment may not reach that student.
+
+Test using `npm test`, then restart `npm start` and create a **new** confirmed match to see the attachment. Existing confirmed sessions do not automatically re-send invitations.
