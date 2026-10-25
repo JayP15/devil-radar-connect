@@ -14,10 +14,10 @@ async function handleCommand(i:ChatInputCommandInteraction){const sub=i.options.
  if(sub==='join'){
   const kind=i.options.getString('kind') as SessionKind|null;const topic=i.options.getString('topic',true),difficulty=i.options.getString('difficulty',true) as 'easy'|'medium'|'hard',date=i.options.getString('date',true),start=i.options.getString('start',true),end=i.options.getString('end',true),pref=i.options.getInteger('minutes',true),min=i.options.getInteger('minimum',true);
   const [a,b]=parseWindow(date,start,end);coordinator.join(makeProfile(i.user.id,topic,difficulty,a,b,pref,min,kind||'interview'));
-  await i.reply({content:`✅ Opted in for **${kind||'interview'}: ${topic}** (${difficulty}). Available **${format(a)}–${format(b)}**. Preferred ${pref} minutes, minimum ${min}. Only your selected preferences enter the matching pool. Run **/connect find**.`,flags:MessageFlags.Ephemeral});return;
+  await i.reply({content:`✅ Opted in for **${kind||'interview'}: ${topic}** (${difficulty}). Available **${format(a)}–${format(b)}**. Preferred ${pref} minutes, minimum ${min}. Your requests remain open alongside previous requests. You have **${coordinator.getProfiles(i.user.id).length}** active request(s). Run **/connect find**.`,flags:MessageFlags.Ephemeral});return;
  }
  if(sub==='leave'){coordinator.leave(i.user.id);await i.reply({content:'✅ Opted out. Pending matches were canceled.',flags:MessageFlags.Ephemeral});return;}
- if(sub==='profile'){const p=coordinator.profiles.get(i.user.id);await i.reply({content:p?`Your opt-in: **${p.kind}: ${p.topic}** · ${p.difficulty} · ${format(p.start)}–${format(p.end)} · ${p.preferredMinutes} preferred/${p.minMinutes} minimum minutes`:'No active opt-in. Use /connect join.',flags:MessageFlags.Ephemeral});return;}
+ if(sub==='profile'){const all=coordinator.getProfiles(i.user.id);await i.reply({content:all.length?`**Your ${all.length} open requests:**\n`+all.map((p,n)=>`${n+1}. **${p.kind}: ${p.topic}** · ${p.difficulty} · ${format(p.start)}–${format(p.end)} · ${p.preferredMinutes} preferred/${p.minMinutes} minimum minutes`).join('\n'):'No active opt-in. Use /connect join.',flags:MessageFlags.Ephemeral});return;}
  if(sub==='find'){
   await i.deferReply({flags:MessageFlags.Ephemeral});const s=coordinator.find(i.user.id);
   if(!s){await i.editReply('No compatible opted-in student with a feasible overlapping time window yet. Ask another student to join.');return;}

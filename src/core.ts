@@ -27,41 +27,48 @@ export class Coordinator{
  readonly profiles=new Map<string,Profile>();
  readonly sessions=new Map<string,Session>();
  constructor(private onChange:()=>void=()=>{}){}
- snapshot(){return {version:1,profiles:[...this.profiles.values()],sessions:[...this.sessions.values()].map(s=>({...s,approvals:[...s.approvals]}))};}
+ getProfiles(userId:string){return [...this.profiles.values()].filter(p=>p.userId===userId).sort((a,b)=>a.start-b.start);}
+ snapshot(){return {version:2,profiles:[...this.profiles.entries()].map(([id,p])=>({...p,id})),sessions:[...this.sessions.values()].map(s=>({...s,approvals:[...s.approvals]}))};}
  restore(data:unknown){
   if(!data||typeof data!=='object')throw Error('Invalid saved data.');
-  const d=data as ReturnType<Coordinator['snapshot']>;
-  if(d.version!==1||!Array.isArray(d.profiles)||!Array.isArray(d.sessions))throw Error('Invalid saved data version.');
+  const d=data as {version:number;profiles:(Profile&{id?:string})[];sessions:(Omit<Session,'approvals'>&{approvals:string[]})[]};
+  if(![1,2].includes(d.version)||!Array.isArray(d.profiles)||!Array.isArray(d.sessions))throw Error('Invalid saved data version.');
   this.profiles.clear();this.sessions.clear();
-  for(const p of d.profiles){if(typeof p.userId!=='string'||!Number.isFinite(p.start)||!Number.isFinite(p.end))throw Error('Invalid saved profile.');this.profiles.set(p.userId,{...p,kind:p.kind||'interview'});}
+  for(const p of d.profiles){if(typeof p.userId!=='string'||!Number.isFinite(p.start)||!Number.isFinite(p.end))throw Error('Invalid saved profile.');const {id,...profile}=p;this.profiles.set(id||randomUUID().slice(0,12),{...profile,kind:p.kind||'interview'});}
   for(const s of d.sessions){if(typeof s.id!=='string'||!Array.isArray(s.approvals))throw Error('Invalid saved match.');this.sessions.set(s.id,{...s,kind:s.kind||'interview',approvals:new Set(s.approvals)});}
  }
- join(profile:Profile){this.profiles.set(profile.userId,profile);this.onChange();}
- leave(userId:string){this.profiles.delete(userId);for(const s of this.sessions.values()){if(s.status==='PENDING'&&(s.a===userId||s.b===userId))s.status='DECLINED';}this.onChange();}
+ join(profile:Profile){
+  const mine=this.getProfiles(profile.userId);
+  const existing=[...this.profiles.entries()].find(([,p])=>p.userId===profile.userId&&p.kind===profile.kind&&p.topic.toLowerCase()===profile.topic.toLowerCase()&&p.difficulty===profile.difficulty&&p.start===profile.start&&p.end===profile.end&&p.preferredMinutes===profile.preferredMinutes&&p.minMinutes===profile.minMinutes);
+  if(existing)return existing[0];
+  if(mine.length>=10)throw Error('Maximum 10 open requests. Use /connect leave to reset your pool.');
+  const id=randomUUID().slice(0,12);this.profiles.set(id,profile);this.onChange();return id;
+ }
+ leave(userId:string){for(const [id,p] of this.profiles){if(p.userId===userId)this.profiles.delete(id);}for(const s of this.sessions.values()){if(s.status==='PENDING'&&(s.a===userId||s.b===userId))s.status='DECLINED';}this.onChange();}
+ private busy(userId:string,start:number,end:number){return [...this.sessions.values()].some(s=>s.status!=='DECLINED'&&(s.a===userId||s.b===userId)&&start<s.start+s.minutes*60000&&s.start<end);}
  find(requesterId:string):Session|null{
-  const a=this.profiles.get(requesterId);if(!a)throw Error('Use /join first.');
-  if([...this.sessions.values()].some(s=>s.status==='PENDING'&&(s.a===requesterId||s.b===requesterId)))throw Error('You already have a pending match.');
-  const other=[...this.profiles.values()].filter(b=>b.userId!==a.userId&&b.difficulty===a.difficulty&&b.kind===a.kind&&b.topic.toLowerCase()===a.topic.toLowerCase()&&b.optedIn&&!([...this.sessions.values()].some(s=>s.status==='PENDING'&&(s.a===b.userId||s.b===b.userId))));
-  for(const b of other){const start=Math.max(a.start,b.start),end=Math.min(a.end,b.end);const agentA=new PersonalAgent(a),agentB=new PersonalAgent(b);
-   if(start>=end)continue;
-   const messages:AgentMessage[]=[];
-   const proposed=a.preferredMinutes;
-   messages.push({from:a.userId,to:b.userId,type:'MATCH_REQUEST',detail:`Propose ${proposed} minutes at ${format(start)} for ${a.topic}.`});
-   // Negotiate a duration that both agents can attend within actual shared availability.
-   const sharedMinutes=Math.floor((end-start)/60_000);
-   const feasibleOffer=Math.min(proposed,sharedMinutes);
-   let duration:number|null=agentB.counter(start,feasibleOffer);
-   if(duration===null||!agentA.canAttend(start,duration))continue;
-   if(duration!==proposed)messages.push({from:b.userId,to:a.userId,type:'COUNTER_PROPOSAL',detail:`Shared availability and preferences support ${duration} minutes at ${format(start)}.`});
-   // Both independently validate the final offer; never fabricate a mutual agreement.
-   if(!agentA.canAttend(start,duration)||!agentB.canAttend(start,duration))continue;
-   messages.push({from:a.userId,to:b.userId,type:'PROPOSAL_ACCEPTED',detail:`Both agents accept ${duration} minutes; requesting explicit human approvals.`});
-   const s:Session={id:randomUUID().slice(0,12),a:a.userId,b:b.userId,topic:a.topic,difficulty:a.difficulty,kind:a.kind,start,minutes:duration,status:'PENDING',approvals:new Set(),messages};
-   this.sessions.set(s.id,s);this.onChange();return s;
+  const mine=this.getProfiles(requesterId).filter(p=>p.end>Date.now());if(!mine.length)throw Error('Use /connect join first.');
+  for(const a of mine){
+   const others=[...this.profiles.values()].filter(b=>b.userId!==a.userId&&b.end>Date.now()&&b.difficulty===a.difficulty&&b.kind===a.kind&&b.topic.toLowerCase()===a.topic.toLowerCase()&&b.optedIn);
+   for(const b of others){const start=Math.max(a.start,b.start,Date.now()),end=Math.min(a.end,b.end);const agentA=new PersonalAgent(a),agentB=new PersonalAgent(b);
+    if(start>=end)continue;
+    const proposed=a.preferredMinutes;
+    const sharedMinutes=Math.floor((end-start)/60000);
+    const feasibleOffer=Math.min(proposed,sharedMinutes);
+    const duration=agentB.counter(start,feasibleOffer);
+    if(duration===null||!agentA.canAttend(start,duration))continue;
+    if(this.busy(a.userId,start,start+duration*60000)||this.busy(b.userId,start,start+duration*60000))continue;
+    const messages:AgentMessage[]=[{from:a.userId,to:b.userId,type:'MATCH_REQUEST',detail:`Propose ${proposed} minutes at ${format(start)} for ${a.topic}.`}];
+    if(duration!==proposed)messages.push({from:b.userId,to:a.userId,type:'COUNTER_PROPOSAL',detail:`Shared availability and preferences support ${duration} minutes at ${format(start)}.`});
+    if(!agentA.canAttend(start,duration)||!agentB.canAttend(start,duration))continue;
+    messages.push({from:a.userId,to:b.userId,type:'PROPOSAL_ACCEPTED',detail:`Both agents accept ${duration} minutes; requesting explicit human approvals.`});
+    const s:Session={id:randomUUID().slice(0,12),a:a.userId,b:b.userId,topic:a.topic,difficulty:a.difficulty,kind:a.kind,start,minutes:duration,status:'PENDING',approvals:new Set(),messages};
+    this.sessions.set(s.id,s);this.onChange();return s;
+   }
   }return null;
  }
  approve(id:string,userId:string):Session{const s=this.sessions.get(id);if(!s)throw Error('Match not found.');if(s.status!=='PENDING')throw Error(`This match is ${s.status.toLowerCase()}.`);if(userId!==s.a&&userId!==s.b)throw Error('Only matched students can approve.');
-  if(!this.profiles.has(s.a)||!this.profiles.has(s.b))throw Error('A student opted out.');
+  if(!this.getProfiles(s.a).length||!this.getProfiles(s.b).length)throw Error('A student opted out.');
   s.approvals.add(userId);if(s.approvals.has(s.a)&&s.approvals.has(s.b))s.status='CONFIRMED';this.onChange();return s;}
  decline(id:string,userId:string):Session{const s=this.sessions.get(id);if(!s)throw Error('Match not found.');if(userId!==s.a&&userId!==s.b)throw Error('Only matched students can decline.');if(s.status==='CONFIRMED')throw Error('Already confirmed.');s.status='DECLINED';this.onChange();return s;}
 }

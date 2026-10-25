@@ -68,3 +68,7 @@ This is a working Discord prototype, not a production marketplace: local file pe
 Once both students click Approve, each receives an `.ics` calendar file in a Discord DM. The attachment can be imported into Apple Calendar, Google Calendar, or Outlook manually. It contains only the agreed topic, session type, and scheduled time, not student emails or personal contact data. This does **not** create any calendar event automatically and does not create a meeting link. If Discord DMs are disabled, the session still confirms but the `.ics` attachment may not reach that student.
 
 Test using `npm test`, then restart `npm start` and create a **new** confirmed match to see the attachment. Existing confirmed sessions do not automatically re-send invitations.
+
+## Multiple open matchmaking requests (v1.2)
+
+Each `/connect join` adds a request instead of replacing the previous one. Students can keep up to **10 different requests** active (for example, a Python study session and a Java interview). Repeating an identical request is deduplicated. `/connect profile` lists all requests, and `/connect find` searches across them in start-time order. More than one proposal can remain pending, but the coordinator blocks overlapping pending or confirmed sessions for the same student. `/connect leave` opts out of all requests and cancels pending proposals. Version 1 saved profiles are automatically migrated on restart.

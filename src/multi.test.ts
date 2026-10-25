@@ -1,0 +1,11 @@
+import {test} from 'node:test';
+import assert from 'node:assert/strict';
+import {Coordinator,makeProfile} from './core.js';
+const t=Date.now()+86400000;
+const mk=(u:string,topic:string,start:number,end:number,kind:'study'|'interview'='study')=>makeProfile(u,topic,'easy',t+start*60000,t+end*60000,60,45,kind);
+test('multiple requests remain active and a compatible non-first request matches',()=>{const c=new Coordinator();c.join(mk('a','java',0,180,'interview'));c.join(mk('a','python',200,400));c.join(mk('b','python',240,460));assert.equal(c.getProfiles('a').length,2);const s=c.find('a');assert.ok(s);assert.equal(s.topic,'python');assert.equal(s.kind,'study');});
+test('multiple distinct nonoverlapping matches can be open',()=>{const c=new Coordinator();c.join(mk('a','java',0,180,'interview'));c.join(mk('a','python',200,400));c.join(mk('b','java',60,180,'interview'));c.join(mk('c','python',240,460));assert.equal(c.find('a')?.topic,'java');assert.equal(c.find('a')?.topic,'python');});
+test('conflicting sessions cannot be double booked',()=>{const c=new Coordinator();c.join(mk('a','java',0,180));c.join(mk('a','python',0,180));c.join(mk('b','java',60,180));c.join(mk('c','python',60,180));assert.ok(c.find('a'));assert.equal(c.find('a'),null);});
+test('join deduplicates identical preferences',()=>{const c=new Coordinator();c.join(mk('a','python',0,180));c.join(mk('a','python',0,180));assert.equal(c.getProfiles('a').length,1);});
+test('version 1 persisted profiles migrate',()=>{const c=new Coordinator();c.restore({version:1,profiles:[mk('a','python',0,180)],sessions:[]});assert.equal(c.getProfiles('a').length,1);assert.equal(c.snapshot().version,2);});
+test('multiple requests survive snapshot restore',()=>{const c=new Coordinator();c.join(mk('a','java',0,180));c.join(mk('a','python',180,360));const r=new Coordinator();r.restore(JSON.parse(JSON.stringify(c.snapshot())));assert.equal(r.getProfiles('a').length,2);});
